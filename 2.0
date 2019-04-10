@@ -1,0 +1,328 @@
+pragma solidity ^0.4.24;
+
+contract Roche {
+    
+    mapping (uint => stakeholderType) stakeholderTypes;
+    
+    struct stakeholderType {
+        uint id; // 1 to 5; 1 = hospital, 2 = doc = oracle, 
+        //3 = patient = evtl. oracle (wristwatch (heartrate, blood pressure) etc.), 4 = roche, 5 = ethicsCommittee
+        uint numIndStakeholders;
+        mapping (address => indStakeholder) indStakeholders;
+        // 'stakeholdersAddress' is needed to access players in payout function / frontend
+		mapping (uint => address) indStakeholdersAddress;
+    }
+    
+    mapping (uint => storedDocument) storedDocuments;
+    uint public numDocs;
+    
+    struct storedDocument {
+        string hashOfDocument;
+        uint docNumber;
+        uint docType; // 0=NA; 1=metadata; 2=EHR; 3=CT
+        uint indStakeholderIdd;
+        bool approvalStatus; // 0=not approved/NA; 1=approved
+    }
+    
+    mapping (uint => indStakeholder) indStakeholders2;
+    
+    uint public totalNumIndStakeholders;
+    
+    struct indStakeholder {
+        string name; // description for 1, 4, 5; (pseudo-)name for 2, 3
+		address indStakeholderAddress; // uniqueIdentifier
+		uint stakeholderId; // 1-5
+		uint indStakeholderId; // start from 1 counting up
+		uint yearOfBirth; // 0=NA; only applies for patients
+		uint gender; // 0=NA; 1=male; 2=female
+		bool interestedInProvidingEHR; // 0=no/NA; 1=yes
+		bool interestedInTrialParticipation; // 0=no/NA; 1=yes
+		bool gotRareDiseaseOrMedicalHistory; // 0=no/NA; 1=yes
+		bool whitelisted; // 0=notWhitelisted; 1=whitelisted
+		uint totalNumInteraction;
+		uint activeNumInteraction;
+		uint trialParticipation; // 0=NA; 1=requested; 2=yes
+		uint provideEHR; // 0=NA; 1=requested; 2=yes
+		mapping (address => indStakeholder) interactWithIndStakeholders;
+        // 'stakeholdersAddress' is needed to access players in payout function / frontend
+		mapping (uint => address) interactWithIndStakeholdersAddress;
+		// listedDocuments yes no
+		mapping (string => indStakeholder) listedDocuments;
+		// include list of all documents for one stakeholder
+		mapping (uint => string) listOfDocuments;
+    }
+    
+    address public ethicsCommittee;
+    
+    
+    constructor () {
+        ethicsCommittee = msg.sender;
+        setUpEcoSystem();
+    }
+    
+    
+    // nur EthicsCommittee
+    modifier onlyEthicsCommittee () {
+        require(stakeholderTypes[5].indStakeholders[msg.sender].indStakeholderAddress != address(0));
+        _;
+    }
+    
+    modifier onlyPatient () {
+        require(stakeholderTypes[3].indStakeholders[msg.sender].indStakeholderAddress != address(0));
+        _;
+    }
+    
+    modifier onlyWhitelistedPatient () {
+        require(stakeholderTypes[3].indStakeholders[msg.sender].indStakeholderAddress != address(0));
+        require(stakeholderTypes[3].indStakeholders[msg.sender].whitelisted == true);
+        _;
+    }
+    
+    modifier onlyNotWhitelistedPatient () {
+        require(stakeholderTypes[3].indStakeholders[msg.sender].indStakeholderAddress != address(0));
+        require(stakeholderTypes[3].indStakeholders[msg.sender].whitelisted != true);
+        _;
+    }
+    
+    modifier onlyWhitelistedCompany () {
+        require(stakeholderTypes[4].indStakeholders[msg.sender].indStakeholderAddress != address(0));
+        require(stakeholderTypes[4].indStakeholders[msg.sender].whitelisted == true);
+        _;
+    }
+    
+    modifier onlyWhitelistedDoc () {
+        require(stakeholderTypes[2].indStakeholders[msg.sender].indStakeholderAddress != address(0));
+        require(stakeholderTypes[2].indStakeholders[msg.sender].whitelisted == true);
+        _;
+    }
+    
+    modifier onlyWhitelistedHospital () {
+        require(stakeholderTypes[1].indStakeholders[msg.sender].indStakeholderAddress != address(0));
+        require(stakeholderTypes[1].indStakeholders[msg.sender].whitelisted == true);
+        _;
+    }
+    
+    modifier providesEHR(address _patient) {
+        require (stakeholderTypes[3].indStakeholders[_patient].interestedInProvidingEHR == true);
+        _;
+    } 
+    
+     modifier trialParticipation(address _patient) {
+        require (stakeholderTypes[3].indStakeholders[_patient].interestedInTrialParticipation == true);
+        _;
+    }
+
+    
+    function setUpEcoSystem () private {
+        // create hospital
+        uint hospitalId = 1;
+        stakeholderType createHospital = stakeholderTypes[hospitalId];
+        createHospital.id = hospitalId;
+        
+        // create doc
+        uint docId = 2;
+        stakeholderType createDoc = stakeholderTypes[docId];
+        createDoc.id = docId;
+        
+        // create patient
+        uint patientId = 3;
+        stakeholderType createPatient = stakeholderTypes[patientId];
+        createPatient.id = patientId;
+        
+        // create roche
+        uint rocheId = 4;
+        stakeholderType createRoche = stakeholderTypes[rocheId];
+        createRoche.id = rocheId;
+        
+        // create ethicsCommittee
+        uint ethicsCommitteeId = 5;
+        stakeholderType createEthicsCommittee = stakeholderTypes[ethicsCommitteeId];
+        createEthicsCommittee.id = ethicsCommitteeId;
+        
+        // register ethicsCommittee
+        indStakeholder ethicsCommittee = stakeholderTypes[5].indStakeholders[msg.sender];
+        stakeholderTypes[5].numIndStakeholders++;
+        totalNumIndStakeholders++;
+    }
+    
+    function registerAsIndStakeholder (string _name, uint _stakeholderId) public {
+        
+        indStakeholder registerAsIndStakeholder = stakeholderTypes[_stakeholderId].indStakeholders[msg.sender];
+        if (registerAsIndStakeholder.indStakeholderAddress == address(0)){
+            uint newIndvidualStakeholderId = ++totalNumIndStakeholders;
+            stakeholderTypes[_stakeholderId].indStakeholdersAddress[newIndvidualStakeholderId] = msg.sender;
+            registerAsIndStakeholder.indStakeholderId = newIndvidualStakeholderId;
+            registerAsIndStakeholder.indStakeholderAddress = msg.sender;
+            registerAsIndStakeholder.name = _name;
+            stakeholderTypes[_stakeholderId].numIndStakeholders++;
+        }
+    }
+    
+    
+    function storeDocument (string _hashOfDocument, uint _indStakeholderId, uint _docType) public 
+            onlyWhitelistedDoc {
+            indStakeholder documentToPatient = indStakeholders2[_indStakeholderId].listedDocuments[_hashOfDocument];
+            // wenn es diesen hash für diesen Patienten noch nicht gibt
+            // if (documentToPatient.hashOfDocument == string(0){
+            uint docId = ++numDocs;
+            storedDocument newDocToStore = storedDocuments[docId];
+            newDocToStore.hashOfDocument = _hashOfDocument;
+            newDocToStore.docNumber = docId;
+            newDocToStore.docType = _docType;
+            newDocToStore.docType = _indStakeholderId;
+            newDocToStore.approvalStatus = true;
+            indStakeholders2[_indStakeholderId].listOfDocuments[docId] = _hashOfDocument;
+    }
+    
+  
+    // onlyDoc or patient himself (before whitelisting)
+    function updatePatientMetaData (uint _YearOfBirth, uint _gender, address _patient) public 
+            onlyWhitelistedDoc 
+            onlyNotWhitelistedPatient {
+            indStakeholder patientToUpdate = stakeholderTypes[3].indStakeholders[_patient];
+            patientToUpdate.yearOfBirth = _YearOfBirth;
+            patientToUpdate.gender = _gender;
+    }
+    
+    // onlyDoc
+    function whiteListPatient (address _patient) public 
+            onlyWhitelistedDoc {
+            indStakeholder patientToWhitelist = stakeholderTypes[3].indStakeholders[_patient];
+            patientToWhitelist.whitelisted = true;
+    }
+    
+    // onlyHospital
+    function whiteListDoc (address _doc) public
+            onlyWhitelistedHospital {
+            indStakeholder docToWhitelist = stakeholderTypes[2].indStakeholders[_doc];
+            docToWhitelist.whitelisted = true;
+    }
+    
+    // onlyEthic
+    function whiteListRoche (address _company) public 
+            onlyEthicsCommittee {
+            indStakeholder companyToWhitelist = stakeholderTypes[4].indStakeholders[_company];
+            companyToWhitelist.whitelisted = true;
+    }
+    // onlyEthic
+    function whiteListhospital (address _hospital) public
+            onlyEthicsCommittee {
+            indStakeholder hospitalToWhitelist = stakeholderTypes[1].indStakeholders[_hospital];
+            hospitalToWhitelist.whitelisted = true;
+    }
+    
+    function willingnessToProvideDataOrParticipateInTrial (bool _EHR, bool _clinicalTrial) public 
+            onlyPatient {
+            indStakeholder patientToUpdate = stakeholderTypes[3].indStakeholders[msg.sender];
+            patientToUpdate.interestedInProvidingEHR = _EHR;
+            patientToUpdate.interestedInTrialParticipation = _clinicalTrial;
+    }
+    
+    
+    // entlohnung, patient anfragen, patient stimmt zu oder nicht
+    // jeden Tag schlüssel zum auslesen zur Verfügung stellen, sobald nicht mehr verfügung, schlüssel nicht mehr bereit stellen
+    // oder einfach ein bool?
+    function requestEHR (uint _patient)
+    //onlyWhitelistedCompany 
+    //providesEHR (_patient) 
+    {
+    indStakeholder rocheToPatient = indStakeholders2[_patient].interactWithIndStakeholders[msg.sender];
+     
+         if (rocheToPatient.indStakeholderAddress == address(0)){
+            //hier muss nicht _patient rein sondern die ID des message senders
+            uint intWithIndvidualStakeholderId = indStakeholders2[_patient].indStakeholderId;
+            indStakeholders2[_patient].interactWithIndStakeholdersAddress[intWithIndvidualStakeholderId] = msg.sender;
+            rocheToPatient.indStakeholderAddress = msg.sender;
+            rocheToPatient.provideEHR = 1;
+            rocheToPatient.totalNumInteraction++;
+        }
+        else rocheToPatient.provideEHR = 1;
+    }
+    
+    
+    function requestTrialParticipation (uint _patient)
+    //onlyWhitelistedCompany
+    //trialParticipation (_patient) 
+    {
+    
+    indStakeholder rocheToPatient = indStakeholders2[_patient].interactWithIndStakeholders[msg.sender];
+         if (rocheToPatient.indStakeholderAddress == address(0)){
+            //hier muss nicht _patient rein sondern die ID des message senders
+            uint intWithIndvidualStakeholderId = indStakeholders2[_patient].indStakeholderId;
+            indStakeholders2[_patient].interactWithIndStakeholdersAddress[intWithIndvidualStakeholderId] = msg.sender;
+            rocheToPatient.indStakeholderAddress = msg.sender;
+            rocheToPatient.trialParticipation = 1;
+            rocheToPatient.totalNumInteraction++;
+        }
+        else rocheToPatient.trialParticipation = 1;
+    }
+    
+    //onlyRoche
+    function confirmDenyTrialParticipation (address _company,bool _yesOrNo, uint _patient)
+   //onlyIfCompanyRequestedThis
+   //onlyWhitelistedPatient
+    {
+    // anstatt uint patient sollte hier automatisch die ID des message senders kommen
+    indStakeholder rocheToPatient = indStakeholders2[_patient].interactWithIndStakeholders[_company];
+        // add new player to team A
+        if (_yesOrNo  == true){
+            rocheToPatient.trialParticipation = 2;
+            rocheToPatient.activeNumInteraction++;
+        }
+        else    rocheToPatient.trialParticipation = 0;
+    }
+    
+    //onlyRoche
+    function confirmDenyProvidingEHR (address _company,bool _yesOrNo, uint _patient)
+   //onlyIfCompanyRequestedThis
+   //onlyWhitelistedPatient
+    {
+    // anstatt uint patient sollte hier automatisch die ID des message senders kommen
+    indStakeholder rocheToPatient = indStakeholders2[_patient].interactWithIndStakeholders[_company];
+        // add new player to team A
+        if (_yesOrNo  == true){
+            rocheToPatient.provideEHR = 2;
+            rocheToPatient.activeNumInteraction++;
+        }
+        else    rocheToPatient.provideEHR = 0;
+    }
+    
+    function provideData ()
+    onlyWhitelistedCompany {
+    // sobald obiger request angenommen wird, wird private Key zum entschlüsseln eines EHR an firma gesendet; 
+    // könnte hash zu einem auf IPFS gespeicherten file sein
+    // clinical trial application ist nochmal ein fall/Smart Contract für sich, das hier soll einzig der Rekrutierung dafür dienen
+        
+    }
+    
+    // call function
+    function getStakeholderTypeInfo (uint _stakeholderId) view public returns (uint totalNumIndStakeholders) {
+        return (stakeholderTypes[_stakeholderId].numIndStakeholders);
+    }
+    
+    // call function
+    function getIndStakeholderInfo (uint _indStakeholderId, uint _stakeholderId) view public returns (string name, address indStakeholderAddress, uint yearOfBirth, uint gender, bool provideEHR, bool trialParticipation, bool whitelisted, uint totalNumInteraction, uint activeNumInteraction) {
+        stakeholderType lookUpStakeholderType = stakeholderTypes[_stakeholderId];
+        address _lookUpIndStakeholder = lookUpStakeholderType.indStakeholdersAddress[_indStakeholderId];
+        indStakeholder memory lookUpIndStakeholder = lookUpStakeholderType.indStakeholders[_lookUpIndStakeholder];
+        return (lookUpIndStakeholder.name, lookUpIndStakeholder.indStakeholderAddress, lookUpIndStakeholder.yearOfBirth, lookUpIndStakeholder.gender, lookUpIndStakeholder.interestedInProvidingEHR, lookUpIndStakeholder.interestedInTrialParticipation, lookUpIndStakeholder.whitelisted, lookUpIndStakeholder.totalNumInteraction, lookUpIndStakeholder.activeNumInteraction);
+    }
+    
+    
+    function getInteractionInfo(uint _patient, address _Roche) view public returns (address indStakeholderAddress, uint trialParticipation, uint provideEHR) {
+        indStakeholder iSh = indStakeholders2[_patient];
+        indStakeholder memory roche = iSh.interactWithIndStakeholders[_Roche];
+        return (roche.indStakeholderAddress, roche.trialParticipation, roche.provideEHR);
+    }
+    
+    //die Infos die ich hier suchen möchte sind gar nicht im struct des indSh gespeichert. nochmals anschauen.
+    
+    //function getDocApprovalInfo(uint _patient, string _hashOfDocument) view public returns (uint indStakeholderIdd, bool approvalStatus , uint docId) {
+    //    indStakeholder iSh = indStakeholders2[_patient];
+    //    indStakeholder memory document = iSh.listedDocuments[_hashOfDocument];
+    //    return (document.indStakeholderIdd, document.approvalStatus, document.docId);
+    // }
+    
+}
+   
+  
